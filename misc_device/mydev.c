@@ -7,6 +7,7 @@
 #include <linux/miscdevice.h>
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
+#include <linux/seq_file.h>
 
 MODULE_LICENSE("GPL");
 
@@ -33,6 +34,7 @@ static struct file_operations mydev_fops = {
 	.release = mydev_release,
 };
 
+#if 0
 static ssize_t mydev_proc_read(struct file *file, char __user *buf,
 		size_t count, loff_t *ppos)
 {
@@ -51,11 +53,51 @@ static ssize_t mydev_proc_read(struct file *file, char __user *buf,
 
 	return len;
 }
+#endif
+
+static int mydev_proc_show(struct seq_file *m, void *v)
+{
+	struct mydevice *dev = (struct mydevice *)m->private;
+
+	seq_printf(m, "value=%d\n", dev->value);
+
+	return 0;
+}
+
+static int mydev_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, mydev_proc_show, &mydev);
+}
 
 static struct file_operations mydev_proc_fops = {
 	.owner = THIS_MODULE,
-	.read = mydev_proc_read,
+	.open = mydev_proc_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
 };
+
+static ssize_t mydev_value_show(struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
+{
+	return sprintf(buf, "%d\n", mydev.value);
+}
+
+static ssize_t mydev_value_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	int x;
+
+	if (sscanf(buf, "%d\n", &x) == 1)
+		mydev.value = x;
+
+	return count;
+}
+
+static DEVICE_ATTR(value, 0600, mydev_value_show,
+			mydev_value_store);
 
 static int mydev_init(void)
 {
@@ -76,6 +118,8 @@ static int mydev_init(void)
 		return -1;
 	}
 
+	device_create_file(mydev.miscdev.this_device, &dev_attr_value);
+
 	proc_create("mydev", 0, NULL, &mydev_proc_fops);
 
 
@@ -85,6 +129,8 @@ static int mydev_init(void)
 static void mydev_exit(void)
 {
 	remove_proc_entry("mydev", NULL);
+
+	device_remove_file(mydev.miscdev.this_device, &dev_attr_value);
 
 	misc_deregister(&mydev.miscdev);
 
